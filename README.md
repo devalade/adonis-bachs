@@ -92,8 +92,9 @@ package raises.
 
 ## Errors
 
-Every expected failure is a typed class carrying Bachs' stable `errorCode`, the
-`x-request-id` to quote at their support, and the `detail` string.
+Every expected failure is a `better-result` tagged error carrying Bachs' stable
+`errorCode`, the `x-request-id` to quote at their support, and the `detail` string.
+Each class brings its own `.is()` guard, which narrows the type:
 
 ```ts
 import { BachsValidationFailed, BachsRateLimited } from '@devalade/adonis-bachs'
@@ -101,21 +102,52 @@ import { BachsValidationFailed, BachsRateLimited } from '@devalade/adonis-bachs'
 try {
   await bachs.products.create(payload)
 } catch (error) {
-  if (error instanceof BachsValidationFailed) {
+  if (BachsValidationFailed.is(error)) {
     return response.unprocessableEntity({ errors: error.errors }) // [{ field, message, type }]
   }
-  if (error instanceof BachsRateLimited) {
+  if (BachsRateLimited.is(error)) {
     return response.tooManyRequests({ retryAfter: error.retryAfter })
   }
   throw error
 }
 ```
 
-Failures carry `status` and `code`, so leaving them unhandled lets AdonisJS' exception
-handler render the right HTTP response.
+`.is()` is `instanceof` underneath, so use whichever reads better — this form just
+matches the rest of `better-result`.
+
+When you want the compiler to hold you to every case, match on the tag instead. Add a
+failure to the union and `matchError` stops compiling until you handle it:
+
+```ts
+import { matchErrorPartial } from 'better-result'
+
+const body = matchErrorPartial(
+  error,
+  {
+    BachsValidationFailed: (failure) => ({ status: 422, errors: failure.errors }),
+    BachsRateLimited: (failure) => ({ status: 429, retryAfter: failure.retryAfter }),
+    BachsUnauthorized: () => ({ status: 401, message: 'Check BACHS_API_KEY' }),
+  },
+  () => null // anything you did not name lands here
+)
+
+if (body === null) throw error
+return response.status(body.status).send(body)
+```
+
+Failures also carry `status` and `code`, so leaving one unhandled lets AdonisJS'
+exception handler render the right HTTP response on its own.
 
 Prefer branching to catching? `bachs.client` exposes the same calls returning
-`Result<T, BachsApiFailure>` instead of throwing.
+`Result<T, BachsApiFailure>` instead of throwing:
+
+```ts
+const result = await bachs.client.get('/v1/products', { operation: 'listProducts', schema })
+
+if (Result.isError(result)) {
+  // result.error is the BachsApiFailure union, narrowable by tag or by .is()
+}
+```
 
 ## Pagination
 

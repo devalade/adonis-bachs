@@ -1,0 +1,26 @@
+{{{
+  exports({ to: app.configPath('bachs.ts') })
+}}}
+import env from '#start/env'
+import { defineConfig } from '@devalade/adonis-bachs'
+
+export default defineConfig({
+  /**
+   * Secret API key from the Bachs developer portal.
+   *
+   * `sk_sandbox_…` talks to the sandbox, `sk_live_…` to production — the
+   * environment follows the key, so going live is a key swap and nothing else.
+   * Server-side only: the browser only ever needs the checkout URL.
+   */
+  apiKey: env.get('BACHS_API_KEY'),
+
+  /**
+   * Signing secret for your webhook endpoint, shown on the endpoint in the
+   * developer portal. Every delivery is signed with it, and an unverified
+   * delivery must never be acted on.
+   *
+   * Pass an array to accept two secrets at once while you rotate:
+   *   webhookSecret: [env.get('BACHS_WEBHOOK_SECRET'), env.get('BACHS_WEBHOOK_SECRET_PREVIOUS')]
+   */
+  webhookSecret: env.get('BACHS_WEBHOOK_SECRET'),
+})

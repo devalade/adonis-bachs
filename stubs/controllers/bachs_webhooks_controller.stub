@@ -1,0 +1,47 @@
+{{{
+  exports({ to: app.httpControllersPath('bachs_webhooks_controller.ts') })
+}}}
+import type { HttpContext } from '@adonisjs/core/http'
+import bachs from '@devalade/adonis-bachs/services/main'
+
+export default class BachsWebhooksController {
+  /**
+   * Receives Bachs webhook deliveries.
+   *
+   * Register it without CSRF protection, since Bachs cannot carry your token:
+   *
+   *   router.post('/webhooks/bachs', [BachsWebhooksController]).use(middleware.noCsrf())
+   *
+   * `handle` verifies the signature, drops duplicates and answers 200. A
+   * handler that throws produces a non-2xx, which makes Bachs retry — so keep
+   * the work here short and push anything slow onto a queue.
+   */
+  async handle(ctx: HttpContext) {
+    await bachs.webhooks.handle(ctx, {
+      'collection.succeeded': async (payload) => {
+        // The money is real at this point. Fulfil the order.
+        // payload.reference is the checkout reference you supplied.
+      },
+
+      'collection.failed': async (payload) => {
+        // The payment did not go through. Leave the order unfulfilled.
+      },
+
+      'customer.subscription.created': async (payload) => {
+        // Grant access for the new subscription.
+      },
+
+      'customer.subscription.updated': async (payload) => {
+        // Plan change, trial move, or a status transition such as past_due.
+      },
+
+      'customer.subscription.deleted': async (payload) => {
+        // The subscription will not renew. Revoke access at the period end.
+      },
+
+      'refund.paid': async (payload) => {
+        // The customer has their money back. Revoke what they paid for.
+      },
+    })
+  }
+}

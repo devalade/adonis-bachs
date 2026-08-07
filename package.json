@@ -1,0 +1,72 @@
+{
+  "name": "@devalade/adonis-bachs",
+  "version": "0.1.0",
+  "description": "Bachs integration for AdonisJS — checkout, subscriptions, payouts and signed webhooks",
+  "type": "module",
+  "license": "MIT",
+  "author": "devalade <aladecharaf23@gmail.com>",
+  "homepage": "https://github.com/devalade/adonis-bachs#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/devalade/adonis-bachs.git"
+  },
+  "bugs": {
+    "url": "https://github.com/devalade/adonis-bachs/issues"
+  },
+  "keywords": [
+    "adonisjs",
+    "adonis",
+    "bachs",
+    "payments",
+    "checkout",
+    "subscriptions",
+    "billing",
+    "webhooks"
+  ],
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "files": [
+    "build",
+    "!build/bin",
+    "!build/tests"
+  ],
+  "exports": {
+    ".": "./build/index.js",
+    "./bachs_provider": "./build/providers/bachs_provider.js",
+    "./services/main": "./build/services/main.js",
+    "./types": "./build/src/schemas.js",
+    "./commands": "./build/commands/main.js"
+  },
+  "scripts": {
+    "build": "npm run clean && tsc && npm run copy:stubs && npm run index:commands",
+    "copy:stubs": "copyfiles \"stubs/**/*.stub\" build",
+    "index:commands": "adonis-kit index build/commands",
+    "clean": "rm -rf build",
+    "typecheck": "tsc --noEmit",
+    "generate:schemas": "node --import=@poppinss/ts-exec bin/generate_schemas.ts",
+    "test": "node --import=@poppinss/ts-exec bin/test.ts",
+    "prepublishOnly": "npm run build"
+  },
+  "peerDependencies": {
+    "@adonisjs/core": "^7.0.0"
+  },
+  "devDependencies": {
+    "@adonisjs/assembler": "^8.4.0",
+    "@adonisjs/core": "^7.3.3",
+    "@adonisjs/tsconfig": "^2.0.0",
+    "@japa/assert": "^4.2.0",
+    "@japa/runner": "^5.3.0",
+    "@poppinss/ts-exec": "^1.4.4",
+    "@types/node": "~25.9.1",
+    "copyfiles": "^2.4.1",
+    "typescript": "~6.0.3"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "better-result": "^3.0.0",
+    "zod": "^4.4.3"
+  }
+}

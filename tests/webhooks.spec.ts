@@ -3,7 +3,7 @@ import { Result } from 'better-result'
 
 import { resolveConfig } from '../src/define_config.ts'
 import { WebhookPayloadUnexpected, WebhookSignatureInvalid } from '../src/failures.ts'
-import { MemoryDedupeStore, WebhooksReceiver } from '../src/webhooks.ts'
+import { MemoryDedupeStore, WebhooksReceiver, type WebhookDelivery } from '../src/webhooks.ts'
 import { collectionSucceeded, event, sign, testClock, webhookRequest } from './helpers.ts'
 
 const SECRET = 'whsec_test_secret'
@@ -25,6 +25,17 @@ function receiverWith(
 function signedRequest(body: unknown, clock: ReturnType<typeof testClock>, secret = SECRET) {
   const rawBody = JSON.stringify(body)
   return webhookRequest({ rawBody, secret, timestamp: clock.seconds() })
+}
+
+/** A verified delivery for the de-duplication store tests. */
+function deliveryOf(id: string): WebhookDelivery {
+  return {
+    event: 'collection.succeeded',
+    id,
+    organizationId: null,
+    createdAt: null,
+    payload: collectionSucceeded(),
+  }
 }
 
 test.group('WebhooksReceiver.verify', () => {
@@ -312,6 +323,59 @@ test.group('WebhooksReceiver.handle', () => {
     assert.equal(runs, 2)
   })
 
+  test('runs the handler again on retry after a failed attempt', async ({ assert }) => {
+    const clock = testClock()
+    const { receiver } = receiverWith({}, clock)
+    const body = event('collection.succeeded', collectionSucceeded())
+
+    let runs = 0
+    const handlers = {
+      'collection.succeeded': async () => {
+        runs++
+        if (runs === 1) {
+          throw new Error('database down')
+        }
+      },
+    }
+
+    await assert.rejects(
+      async () => receiver.handle(signedRequest(body, clock), handlers),
+      'database down'
+    )
+    await receiver.handle(signedRequest(body, clock), handlers)
+
+    assert.equal(runs, 2)
+  })
+
+  test('a concurrent delivery of the same event cannot run while one is in flight', async ({
+    assert,
+  }) => {
+    const clock = testClock()
+    const { receiver } = receiverWith({}, clock)
+    const body = event('collection.succeeded', collectionSucceeded())
+
+    let runs = 0
+    const started = Promise.withResolvers<void>()
+    const handlerDone = Promise.withResolvers<void>()
+
+    const handlers = {
+      'collection.succeeded': async () => {
+        runs++
+        started.resolve()
+        await handlerDone.promise
+      },
+    }
+
+    const first = receiver.handle(signedRequest(body, clock), handlers)
+    await started.promise
+    const second = receiver.handle(signedRequest(body, clock), handlers)
+
+    handlerDone.resolve()
+    await Promise.all([first, second])
+
+    assert.equal(runs, 1)
+  })
+
   test('throws the failure so AdonisJS renders a 401', async ({ assert }) => {
     const clock = testClock()
     const { receiver } = receiverWith({}, clock)
@@ -342,14 +406,25 @@ test.group('WebhooksReceiver.handle', () => {
 })
 
 test.group('MemoryDedupeStore', () => {
-  test('forgets an entry once its window passes', ({ assert }) => {
+  test('forgets a completed entry once its window passes', ({ assert }) => {
     const clock = testClock()
     const store = new MemoryDedupeStore(clock.now, 1000)
 
-    store.remember('evt_1')
-    assert.isTrue(store.seen('evt_1'))
+    assert.isTrue(store.claim(deliveryOf('evt_1')))
+    store.complete('evt_1')
+    assert.isFalse(store.claim(deliveryOf('evt_1')))
 
     clock.advance(1001)
-    assert.isFalse(store.seen('evt_1'))
+    assert.isTrue(store.claim(deliveryOf('evt_1')))
+  })
+
+  test('an active claim blocks a second claim until released', ({ assert }) => {
+    const store = new MemoryDedupeStore(testClock().now, 1000)
+
+    assert.isTrue(store.claim(deliveryOf('evt_1')))
+    assert.isFalse(store.claim(deliveryOf('evt_1')))
+
+    store.release('evt_1')
+    assert.isTrue(store.claim(deliveryOf('evt_1')))
   })
 })

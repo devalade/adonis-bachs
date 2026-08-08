@@ -1,13 +1,26 @@
 import { redact, Redacted } from './redacted.ts'
+import type { WebhookDelivery } from './webhooks.ts'
 
 /**
- * Remembers which events have already been processed, so a Bachs retry does
- * not run your handler twice. Provide your own to share the state across
- * processes (Redis, a database table, …).
+ * Guards each event so a Bachs retry does not run your handler twice.
+ * `claim` acquires the processing right atomically, `complete` marks the event
+ * as processed for the TTL, and `release` lets a failed delivery be retried.
+ * Provide your own to share the state across processes (Redis, a database
+ * table, …).
  */
 export type WebhookDedupeStore = {
-  seen(eventId: string): Promise<boolean> | boolean
-  remember(eventId: string): Promise<void> | void
+  /**
+   * Atomically acquires the processing right for a delivery. Receives the full
+   * verified delivery so a durable store can persist its metadata and payload
+   * alongside the claim. Returns true only to the caller that won the claim:
+   * completed events stay duplicates for the TTL, and an active claim blocks
+   * any other caller.
+   */
+  claim(delivery: WebhookDelivery): Promise<boolean> | boolean
+  /** Marks an event as processed, so it stays a duplicate for the rest of the TTL. */
+  complete(eventId: string): Promise<void> | void
+  /** Drops the claim, making a failed delivery retryable. */
+  release(eventId: string): Promise<void> | void
 }
 
 /**

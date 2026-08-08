@@ -86,7 +86,10 @@ export type WebhookHandlers = {
  * may deliver the same event to any one of them.
  */
 export class MemoryDedupeStore implements WebhookDedupeStore {
-  readonly #entries = new Map<string, number>()
+  /** Events completed successfully, keyed by expiry of their TTL window. */
+  readonly #completed = new Map<string, number>()
+  /** Events with an active claim — currently being handled, or abandoned. */
+  readonly #claims = new Set<string>()
   readonly #now: Clock
   readonly #ttl: number
 
@@ -95,34 +98,42 @@ export class MemoryDedupeStore implements WebhookDedupeStore {
     this.#ttl = ttl
   }
 
-  /** @returns Whether this event was already processed within the window. */
-  seen(eventId: string): boolean {
-    const expiresAt = this.#entries.get(eventId)
+  /**
+   * Acquires the processing right for a delivery. Check and mark happen in the
+   * same synchronous pass, so two concurrent callers cannot both win: a
+   * completed event, or one already claimed, loses.
+   *
+   * @returns Whether the caller got the processing right.
+   */
+  claim(delivery: WebhookDelivery): boolean {
+    this.#prune()
 
-    if (expiresAt === undefined) {
+    if (this.#completed.has(delivery.id) || this.#claims.has(delivery.id)) {
       return false
     }
 
-    if (expiresAt <= this.#now()) {
-      this.#entries.delete(eventId)
-      return false
-    }
-
+    this.#claims.add(delivery.id)
     return true
   }
 
-  /** Records an event as processed. */
-  remember(eventId: string): void {
+  /** Records the event as processed for the rest of the TTL window. */
+  complete(eventId: string): void {
+    this.#claims.delete(eventId)
     this.#prune()
-    this.#entries.set(eventId, this.#now() + this.#ttl)
+    this.#completed.set(eventId, this.#now() + this.#ttl)
+  }
+
+  /** Drops the claim so a failed delivery can be retried. */
+  release(eventId: string): void {
+    this.#claims.delete(eventId)
   }
 
   #prune(): void {
     const now = this.#now()
 
-    for (const [id, expiresAt] of this.#entries) {
+    for (const [id, expiresAt] of this.#completed) {
       if (expiresAt <= now) {
-        this.#entries.delete(id)
+        this.#completed.delete(id)
       }
     }
 
@@ -130,12 +141,12 @@ export class MemoryDedupeStore implements WebhookDedupeStore {
      * Hard cap so a flood of deliveries cannot grow the map without bound.
      * Map iterates in insertion order, so this drops the oldest first.
      */
-    while (this.#entries.size > DEDUPE_MAX_ENTRIES) {
-      const oldest = this.#entries.keys().next()
+    while (this.#completed.size > DEDUPE_MAX_ENTRIES) {
+      const oldest = this.#completed.keys().next()
       if (oldest.done) {
         break
       }
-      this.#entries.delete(oldest.value)
+      this.#completed.delete(oldest.value)
     }
   }
 }
@@ -237,8 +248,8 @@ export class WebhooksReceiver {
   }
 
   /**
-   * Verifies the request, skips deliveries already handled, runs the matching
-   * handler and answers 200.
+   * Verifies the request, claims the delivery so only one caller handles it,
+   * runs the matching handler and answers 200.
    *
    * ```ts
    * await bachs.webhooks.handle(ctx, {
@@ -247,9 +258,11 @@ export class WebhooksReceiver {
    * ```
    *
    * The handler is awaited, so a handler that throws produces a non-2xx and
-   * Bachs retries the delivery. Push slow work onto a queue rather than doing
-   * it inline: the delivery has a deadline, and a retried event you already
-   * half-processed is harder to reason about than one you queued.
+   * Bachs retries the delivery. The claim is released in that case, so the
+   * retry runs the handler again rather than being dropped as a duplicate.
+   * Push slow work onto a queue rather than doing it inline: the delivery has
+   * a deadline, and a retried event you already half-processed is harder to
+   * reason about than one you queued.
    *
    * @returns The delivery that was processed.
    * @throws {WebhookSignatureInvalid} When the signature does not verify. This
@@ -257,6 +270,7 @@ export class WebhooksReceiver {
    * framework's exception handler renders it. Call {@link verify} instead to
    * receive the failure as a value.
    * @throws {WebhookPayloadUnexpected} When the body is not an event payload.
+   * @throws {unknown} The original error, when the handler throws.
    */
   async handle(ctx: HttpContext, handlers: WebhookHandlers): Promise<WebhookDelivery> {
     const verified = this.verify(ctx)
@@ -267,15 +281,23 @@ export class WebhooksReceiver {
     const delivery = verified.value
     const store = this.#dedupe
 
-    if (store !== false) {
-      if (await store.seen(delivery.id)) {
-        ctx.response.ok({ received: true, duplicate: true })
-        return delivery
-      }
-      await store.remember(delivery.id)
+    if (store !== false && !(await store.claim(delivery))) {
+      ctx.response.ok({ received: true, duplicate: true })
+      return delivery
     }
 
-    await runHandler(delivery, handlers)
+    try {
+      await runHandler(delivery, handlers)
+    } catch (error) {
+      if (store !== false) {
+        await store.release(delivery.id)
+      }
+      throw error
+    }
+
+    if (store !== false) {
+      await store.complete(delivery.id)
+    }
 
     ctx.response.ok({ received: true })
     return delivery

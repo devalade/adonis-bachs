@@ -37,7 +37,7 @@ export default class BachsCheck extends BaseCommand {
         this.logger.warning('This key is live. Calls from this app move real money.')
       }
     } catch (error) {
-      if (error instanceof BachsUnauthorized) {
+      if (BachsUnauthorized.is(error)) {
         this.logger.error('Bachs rejected the API key.')
         this.logger.info(
           'Check BACHS_API_KEY in your .env. A sandbox key cannot talk to production, or the other way round.'
@@ -46,7 +46,7 @@ export default class BachsCheck extends BaseCommand {
         return
       }
 
-      if (error instanceof BachsForbidden) {
+      if (BachsForbidden.is(error)) {
         this.logger.error('The API key is valid but lacks a scope this check needs.')
         this.logger.info('Grant it the read scopes in the developer portal under API Keys.')
         this.exitCode = 1

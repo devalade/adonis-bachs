@@ -1,5 +1,5 @@
 ---
-name: bachs-integration
+name: adonis-bachs
 description: Installs, configures, and implements Bachs payments for AdonisJS using @devalade/adonis-bachs. Use when installing or configuring the package, or implementing Bachs checkout, payments, subscriptions, signed webhooks, durable webhook processing, refunds, or payouts.
 ---
 

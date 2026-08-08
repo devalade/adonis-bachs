@@ -1,0 +1,102 @@
+{{{
+  exports({ to: app.makePath('app/services/bachs_webhook_store.ts') })
+}}}
+import { randomUUID } from 'node:crypto'
+import db from '@adonisjs/lucid/services/db'
+import type { WebhookDedupeStore, WebhookDelivery } from '@devalade/adonis-bachs'
+
+const TABLE = 'bachs_webhook_events'
+const CLAIM_LEASE_MS = 5 * 60 * 1000
+const COMPLETED_RETENTION_MS = 6 * 60 * 60 * 1000
+
+export default class BachsWebhookStore implements WebhookDedupeStore {
+  readonly #claims = new Map<string, string>()
+
+  async claim(delivery: WebhookDelivery): Promise<boolean> {
+    const token = randomUUID()
+    const now = new Date()
+    const claimedUntil = new Date(now.getTime() + CLAIM_LEASE_MS)
+    await db
+      .from(TABLE)
+      .where('status', 'completed')
+      .where('expires_at', '<=', now)
+      .delete()
+
+    const deliveryValues = {
+      event_type: delivery.event,
+      organization_id: delivery.organizationId,
+      occurred_at: delivery.createdAt,
+      payload: JSON.stringify(delivery.payload),
+    }
+    const claimValues = {
+      ...deliveryValues,
+      status: 'processing',
+      claim_token: token,
+      claimed_until: claimedUntil,
+      expires_at: null,
+      processed_at: null,
+      updated_at: now,
+    }
+
+    await db
+      .from(TABLE)
+      .where('event_id', delivery.id)
+      .where((query) => {
+        query
+          .where((processing) => {
+            processing.where('status', 'processing').where('claimed_until', '<=', now)
+          })
+          .orWhere('status', 'failed')
+      })
+      .update({ ...claimValues, attempts: db.raw('attempts + 1') })
+
+    await db
+      .table(TABLE)
+      .insert({ event_id: delivery.id, ...claimValues, attempts: 1, created_at: now })
+      .onConflict('event_id')
+      .ignore()
+
+    const row = await db.from(TABLE).select('claim_token').where('event_id', delivery.id).first()
+    if (row?.claim_token !== token) {
+      return false
+    }
+
+    this.#claims.set(delivery.id, token)
+    return true
+  }
+
+  async complete(eventId: string): Promise<void> {
+    const token = this.#claims.get(eventId)
+    if (token === undefined) return
+
+    const now = new Date()
+    await db
+      .from(TABLE)
+      .where({ event_id: eventId, status: 'processing', claim_token: token })
+      .update({
+        status: 'completed',
+        claim_token: null,
+        claimed_until: null,
+        processed_at: now,
+        expires_at: new Date(now.getTime() + COMPLETED_RETENTION_MS),
+        updated_at: now,
+      })
+    this.#claims.delete(eventId)
+  }
+
+  async release(eventId: string): Promise<void> {
+    const token = this.#claims.get(eventId)
+    if (token === undefined) return
+
+    await db
+      .from(TABLE)
+      .where({ event_id: eventId, status: 'processing', claim_token: token })
+      .update({
+        status: 'failed',
+        claim_token: null,
+        claimed_until: null,
+        updated_at: new Date(),
+      })
+    this.#claims.delete(eventId)
+  }
+}

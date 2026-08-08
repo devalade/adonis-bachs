@@ -1,0 +1,36 @@
+{{{
+  exports({
+    to: app.makePath('database/migrations', `${migrationTimestamp}_create_bachs_webhook_events_table.ts`)
+  })
+}}}
+import { BaseSchema } from '@adonisjs/lucid/schema'
+
+export default class extends BaseSchema {
+  protected tableName = 'bachs_webhook_events'
+
+  async up() {
+    this.schema.createTable(this.tableName, (table) => {
+      table.increments('id')
+      table.string('event_id').notNullable().unique()
+      table.string('event_type').notNullable()
+      table.string('organization_id').nullable()
+      table.string('occurred_at').nullable()
+      table.json('payload').notNullable()
+      table.string('status').notNullable()
+      table.integer('attempts').unsigned().notNullable().defaultTo(1)
+      table.uuid('claim_token').nullable()
+      table.timestamp('claimed_until', { useTz: true }).nullable()
+      table.timestamp('expires_at', { useTz: true }).nullable()
+      table.timestamp('processed_at', { useTz: true }).nullable()
+      table.timestamp('created_at', { useTz: true }).notNullable()
+      table.timestamp('updated_at', { useTz: true }).notNullable()
+
+      table.index(['status', 'claimed_until'])
+      table.index(['status', 'expires_at'])
+    })
+  }
+
+  async down() {
+    this.schema.dropTable(this.tableName)
+  }
+}

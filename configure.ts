@@ -7,16 +7,34 @@ import { stubsRoot } from './stubs/main.ts'
  */
 export async function configure(command: Configure) {
   const codemods = await command.createCodemods()
+  const useLucidInbox = await command.prompt.confirm(
+    'Scaffold durable webhook processing with Lucid?',
+    {
+      default: false,
+      hint: 'Requires @adonisjs/lucid to already be installed and configured',
+    }
+  )
 
   /**
    * config/bachs.ts
    */
-  await codemods.makeUsingStub(stubsRoot, 'config/bachs.stub', {})
+  await codemods.makeUsingStub(
+    stubsRoot,
+    useLucidInbox ? 'config/bachs_lucid.stub' : 'config/bachs.stub',
+    {}
+  )
 
   /**
    * app/controllers/bachs_webhooks_controller.ts — the webhook receiver.
    */
   await codemods.makeUsingStub(stubsRoot, 'controllers/bachs_webhooks_controller.stub', {})
+
+  if (useLucidInbox) {
+    await codemods.makeUsingStub(stubsRoot, 'services/bachs_webhook_store.stub', {})
+    await codemods.makeUsingStub(stubsRoot, 'migrations/create_bachs_webhook_events_table.stub', {
+      migrationTimestamp: Date.now(),
+    })
+  }
 
   /**
    * Environment variables.
@@ -47,4 +65,7 @@ export async function configure(command: Configure) {
   command.logger.log(
     '  4. Register the route without CSRF: router.post("/webhooks/bachs", [BachsWebhooksController])'
   )
+  if (useLucidInbox) {
+    command.logger.log('  5. Run "node ace migration:run" to create the webhook inbox')
+  }
 }

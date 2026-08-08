@@ -1,0 +1,12 @@
+{{{
+  exports({ to: app.configPath('bachs.ts') })
+}}}
+import { defineConfig } from '@devalade/adonis-bachs'
+import env from '#start/env'
+import BachsWebhookStore from '#services/bachs_webhook_store'
+
+export default defineConfig({
+  apiKey: env.get('BACHS_API_KEY'),
+  webhookSecret: env.get('BACHS_WEBHOOK_SECRET'),
+  dedupe: new BachsWebhookStore(),
+})

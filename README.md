@@ -174,18 +174,35 @@ Every configured secret is tried, so no delivery is dropped mid-rotation.
 
 ## Running several processes
 
-De-duplication defaults to an in-memory store, which only covers one process. Behind a
-load balancer, give it somewhere shared:
+De-duplication defaults to an in-memory store, which only covers one process. For a
+production app running several processes, accept the optional Lucid webhook inbox when
+configuring the package:
 
-```ts
-defineConfig({
-  apiKey: env.get('BACHS_API_KEY'),
-  dedupe: {
-    async seen(eventId) { return (await redis.exists(`bachs:${eventId}`)) === 1 },
-    async remember(eventId) { await redis.setex(`bachs:${eventId}`, 21_600, '1') },
-  },
-})
+```sh
+node ace configure @devalade/adonis-bachs
+node ace migration:run
 ```
+
+Choose **Scaffold durable webhook processing with Lucid**. Lucid must already be
+installed and configured. The command generates:
+
+- `database/migrations/*_create_bachs_webhook_events_table.ts`
+- `app/services/bachs_webhook_store.ts`
+- `config/bachs.ts` wired to the durable store
+
+For an app that was already configured, rerun the configure command to publish the
+missing service and migration. If your existing `config/bachs.ts` is preserved, import
+`BachsWebhookStore` there and set `dedupe: new BachsWebhookStore()` manually.
+
+The store atomically claims each verified delivery, records its payload, metadata and
+attempt count, and marks it complete only after your handler succeeds. A failed handler
+leaves a retryable `failed` row, so a Bachs retry can run again. Five-minute processing
+leases recover deliveries abandoned by a crashed process; completed event IDs remain
+deduplicated for six hours and are then cleaned up as new deliveries arrive.
+
+This table is webhook-delivery infrastructure, not your application's payment model.
+Your orders, payments, subscriptions, fulfilment state and their relationships remain
+owned by your application.
 
 ## API surface
 

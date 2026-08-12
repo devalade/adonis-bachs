@@ -1,6 +1,6 @@
 {
   "name": "@devalade/adonis-bachs",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Bachs integration for AdonisJS — checkout, subscriptions, payouts and signed webhooks",
   "type": "module",
   "license": "MIT",

@@ -12,7 +12,7 @@ export default class BachsWebhooksController {
    *
    *   router.post('/webhooks/bachs', [BachsWebhooksController]).use(middleware.noCsrf())
    *
-   * `handle` verifies the signature, drops duplicates and answers 200. A
+   * \`handle\` verifies the signature, drops duplicates and answers 200. A
    * handler that throws produces a non-2xx, which makes Bachs retry — so keep
    * the work here short and push anything slow onto a queue.
    */

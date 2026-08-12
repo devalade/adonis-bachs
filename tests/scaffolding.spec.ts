@@ -1,12 +1,69 @@
-import { readFile } from 'node:fs/promises'
+import { readdir, readFile } from 'node:fs/promises'
 import type Configure from '@adonisjs/core/commands/configure'
 import { test } from '@japa/runner'
+import { compile } from 'tempura'
 
 import { configure } from '../configure.ts'
 
 async function source(path: string) {
   return readFile(new URL(`../${path}`, import.meta.url), 'utf8')
 }
+
+/** Every `.stub` under `stubs/`, as paths relative to the package root. */
+async function everyStub(): Promise<string[]> {
+  const root = new URL('../stubs/', import.meta.url)
+  const entries = await readdir(root, { recursive: true, withFileTypes: true })
+
+  return entries
+    .filter((entry) => entry.isFile() && entry.name.endsWith('.stub'))
+    .map((entry) => `stubs/${entry.parentPath.split('/stubs/')[1] ?? ''}/${entry.name}`)
+    .map((path) => path.replace('//', '/'))
+}
+
+test.group('stub compilation', () => {
+  /**
+   * The stub engine embeds a stub's body in a JavaScript template literal, so
+   * an unescaped backtick in prose closes the literal and whatever follows is
+   * parsed as code. That ships as a `configure` crash, not a failing test,
+   * because the earlier scaffolding tests fake `makeUsingStub` and only ever
+   * read the stubs as strings.
+   *
+   * Compiling every stub here is the cheapest thing that would have caught it.
+   */
+  test('every stub compiles', async ({ assert }) => {
+    const stubs = await everyStub()
+    assert.isAbove(stubs.length, 0, 'expected to find stubs to compile')
+
+    for (const path of stubs) {
+      const contents = await source(path)
+
+      try {
+        compile(contents)
+      } catch (error) {
+        assert.fail(
+          `${path} does not compile: ${(error as Error).message}. ` +
+            'Escape backticks and "${" in stub prose — the body becomes a template literal.'
+        )
+      }
+    }
+  })
+
+  test('stub prose escapes backticks', async ({ assert }) => {
+    for (const path of await everyStub()) {
+      const contents = await source(path)
+
+      /**
+       * Only the body is checked. A `{{{ … }}}` header is raw JavaScript, where
+       * a template literal is legitimate — the migration stub builds its
+       * filename with one.
+       */
+      const body = contents.replace(/^\{\{\{[\s\S]*?\}\}\}/, '')
+      const unescaped = body.match(/(?<!\\)`/g) ?? []
+
+      assert.lengthOf(unescaped, 0, `${path} has ${unescaped.length} unescaped backtick(s)`)
+    }
+  })
+})
 
 test.group('durable webhook scaffolding', () => {
   test('generates durable files only when the Lucid inbox is accepted', async ({ assert }) => {

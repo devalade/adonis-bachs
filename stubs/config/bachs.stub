@@ -8,7 +8,7 @@ export default defineConfig({
   /**
    * Secret API key from the Bachs developer portal.
    *
-   * `sk_sandbox_…` talks to the sandbox, `sk_live_…` to production — the
+   * \`sk_sandbox_…\` talks to the sandbox, \`sk_live_…\` to production — the
    * environment follows the key, so going live is a key swap and nothing else.
    * Server-side only: the browser only ever needs the checkout URL.
    */

@@ -159,7 +159,7 @@ function toZodBase(schema: JsonSchema, indent: string): string {
   if (schema.enum !== undefined) {
     const values = schema.enum
     if (values.every((value) => typeof value === 'string')) {
-      return `z.enum([${values.map((value) => quote(value as string)).join(', ')}])`
+      return `caseInsensitiveEnum([${values.map((value) => quote(value as string)).join(', ')}])`
     }
     return `z.union([${values.map((value) => `z.literal(${JSON.stringify(value)})`).join(', ')}])`
   }
@@ -371,6 +371,24 @@ const output = `/**
  * API, so nothing here is a number you can safely do arithmetic on.
  */
 import { z } from 'zod'
+
+/**
+ * A string enum that reads either casing and hands back the one the
+ * specification documents.
+ *
+ * The API and its document disagree on case for several enums — a checkout
+ * session is created with \`status: "open"\` where the spec says \`OPEN\` — and
+ * rejecting a real, paid checkout over letter case is the worst possible
+ * trade. Unknown values still fail, so a genuinely new state is not swallowed.
+ */
+function caseInsensitiveEnum<const T extends readonly [string, ...string[]]>(values: T) {
+  const canonical = new Map(values.map((value) => [value.toLowerCase(), value]))
+
+  return z.preprocess(
+    (value) => (typeof value === 'string' ? (canonical.get(value.toLowerCase()) ?? value) : value),
+    z.enum(values)
+  )
+}
 
 ${declarations.join('\n\n')}
 

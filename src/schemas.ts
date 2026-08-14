@@ -16,6 +16,24 @@
  */
 import { z } from 'zod'
 
+/**
+ * A string enum that reads either casing and hands back the one the
+ * specification documents.
+ *
+ * The API and its document disagree on case for several enums — a checkout
+ * session is created with `status: "open"` where the spec says `OPEN` — and
+ * rejecting a real, paid checkout over letter case is the worst possible
+ * trade. Unknown values still fail, so a genuinely new state is not swallowed.
+ */
+function caseInsensitiveEnum<const T extends readonly [string, ...string[]]>(values: T) {
+  const canonical = new Map(values.map((value) => [value.toLowerCase(), value]))
+
+  return z.preprocess(
+    (value) => (typeof value === 'string' ? (canonical.get(value.toLowerCase()) ?? value) : value),
+    z.enum(values)
+  )
+}
+
 export const MerchantIntentSchema = z.object({
   /** Base currency code (e.g., 'USD', 'NGN'). Must be a supported fiat currency. */
   currency: z.string(),
@@ -29,7 +47,7 @@ export const MerchantIntentSchema = z.object({
    * `fixed` (default when amount is set) | `custom` (buyer enters the amount at checkout,
    * within optional bounds, via the checkout-level set-amount) | `free` ($0).
    */
-  price_type: z.enum(['fixed', 'custom', 'free']).optional(),
+  price_type: caseInsensitiveEnum(['fixed', 'custom', 'free']).optional(),
   /** Suggested starting amount for a custom price. */
   preset_amount: z.string().optional(),
   /** Lower bound for a custom price. */
@@ -57,7 +75,7 @@ export const AdhocPriceInputSchema = z.object({
    * amount at checkout. `free` is a $0 line that completes without payment; on a recurring
    * product it creates a free subscription (no card, renews with no charge).
    */
-  price_type: z.enum(['fixed', 'custom', 'free']).optional(),
+  price_type: caseInsensitiveEnum(['fixed', 'custom', 'free']).optional(),
   /** The price, for a `fixed` ad-hoc price. Required for `fixed`; not valid for `custom`. */
   amount: z.string().nullable().optional(),
   /** Suggested starting amount for a `custom` ad-hoc price. */
@@ -107,7 +125,7 @@ export const CreateCheckoutSessionRequestSchema = z.object({
   /** Optional checkout billing currency. If omitted, defaults to product pricing currency. */
   billing_currency: z.string().nullable().optional(),
   /** Optional list of allowed payment methods. */
-  allowed_payment_method_types: z.array(z.enum(['card', 'crypto', 'bank_transfer', 'mobile_money'])).nullable().optional(),
+  allowed_payment_method_types: z.array(caseInsensitiveEnum(['card', 'crypto', 'bank_transfer', 'mobile_money'])).nullable().optional(),
   /**
    * Where to send the customer if they cancel or abandon the checkout. Returned on the
    * checkout so the hosted page can route back to it.
@@ -173,7 +191,7 @@ export const CreateRefundRequestSchema = z.object({
    * Who bears the refund processing fee. `org` (default) charges the fee to your balance;
    * `customer` deducts it from the amount returned to the customer.
    */
-  fee_bearer: z.enum(['org', 'customer']).nullable().optional(),
+  fee_bearer: caseInsensitiveEnum(['org', 'customer']).nullable().optional(),
   /** Human-readable reason for the refund. */
   reason: z.string().nullable().optional(),
   /**
@@ -182,7 +200,7 @@ export const CreateRefundRequestSchema = z.object({
    */
   idempotency_key: z.string().nullable().optional(),
   /** Test mode only. Force a specific refund outcome. Omit to use the default sandbox outcome. */
-  simulated_outcome: z.enum(['success', 'failed']).nullable().optional(),
+  simulated_outcome: caseInsensitiveEnum(['success', 'failed']).nullable().optional(),
 })
 
 export type CreateRefundRequest = z.infer<typeof CreateRefundRequestSchema>
@@ -198,7 +216,7 @@ export const RefundResponseSchema = z.object({
    * Current refund status. `processing` = awaiting provider (1-5 business days); `success` =
    * funds returned to customer; `failed` = refund rejected.
    */
-  status: z.enum(['processing', 'success', 'failed']).optional(),
+  status: caseInsensitiveEnum(['processing', 'success', 'failed']).optional(),
   /** The refund amount you requested, in the charge's settlement currency. */
   requested_amount: z.string().optional(),
   /**
@@ -212,7 +230,7 @@ export const RefundResponseSchema = z.object({
    * Who bears the refund processing fee. `org` means the merchant absorbs the fee; `customer`
    * means it is deducted from the refunded amount.
    */
-  fee_bearer: z.enum(['org', 'customer']).optional(),
+  fee_bearer: caseInsensitiveEnum(['org', 'customer']).optional(),
   /** The reason you provided, or null if none was given. */
   reason: z.string().nullable().optional(),
   /** ISO 8601 timestamp when the refund was created. */
@@ -249,7 +267,7 @@ export const CreateCheckoutSessionResponseSchema = z.object({
    * `EXPIRED`: The session window elapsed before payment. This is a terminal state.
    * `CANCELLED`: Canceled before completion. This is a terminal state.
    */
-  status: z.enum(['OPEN', 'COMPLETED', 'EXPIRED', 'CANCELLED']).optional(),
+  status: caseInsensitiveEnum(['OPEN', 'COMPLETED', 'EXPIRED', 'CANCELLED']).optional(),
   /**
    * ISO 8601 timestamp indicating when the checkout will expire. After this time, customers
    * cannot complete payment through this checkout.
@@ -338,7 +356,7 @@ export const ChargeStatusResponseSchema = z.object({
    * Current status of the payment. PENDING, AWAITING_PAYMENT, and PROCESSING are non-final
    * states. COMPLETED, FAILED, CANCELLED, EXPIRED, and REFUNDED are final states.
    */
-  status: z.enum(['PENDING', 'AWAITING_PAYMENT', 'PROCESSING', 'COMPLETED', 'FAILED', 'CANCELLED', 'EXPIRED', 'REFUNDED']).optional(),
+  status: caseInsensitiveEnum(['PENDING', 'AWAITING_PAYMENT', 'PROCESSING', 'COMPLETED', 'FAILED', 'CANCELLED', 'EXPIRED', 'REFUNDED']).optional(),
   /**
    * Custom metadata you provided when creating the checkout. This can include order IDs,
    * product SKUs, or any other relevant information.
@@ -530,7 +548,7 @@ export type CreateWithdrawalResponse = z.infer<typeof CreateWithdrawalResponseSc
 
 export const PayoutDestinationRequestSchema = z.object({
   /** Type of payout destination */
-  destination_type: z.enum(['bank_account', 'mobile_money', 'crypto_wallet']),
+  destination_type: caseInsensitiveEnum(['bank_account', 'mobile_money', 'crypto_wallet']),
   /** Currency code */
   currency: z.string(),
   /** User-friendly name */
@@ -567,9 +585,9 @@ export const PayoutDestinationResponseSchema = z.object({
   /** Organization ID that owns this destination. */
   organization_id: z.string().optional(),
   /** Environment this destination belongs to. 'test' for test mode, 'live' for production. */
-  env: z.enum(['test', 'live']).optional(),
+  env: caseInsensitiveEnum(['test', 'live']).optional(),
   /** Type of payout destination. Determines which fields are populated. */
-  destination_type: z.enum(['bank_account', 'mobile_money', 'crypto_wallet']).optional(),
+  destination_type: caseInsensitiveEnum(['bank_account', 'mobile_money', 'crypto_wallet']).optional(),
   /**
    * Currency code this destination accepts (e.g., 'NGN', 'USD', 'USDT_TRC20'). Withdrawals to
    * this destination must use this currency.
@@ -700,7 +718,7 @@ export const PayoutResponseSchema = z.object({
   /** Withdrawal currency code. */
   currency: z.string(),
   /** Current withdrawal status. */
-  status: z.enum(['pending_submission', 'pending_collection', 'processing', 'manual_review', 'successful', 'failed', 'cancelled', 'expired', 'reconciled']),
+  status: caseInsensitiveEnum(['pending_submission', 'pending_collection', 'processing', 'manual_review', 'successful', 'failed', 'cancelled', 'expired', 'reconciled']),
   /** Debited currency. */
   from_currency: z.string().nullable().optional(),
   /** Destination currency. */
@@ -830,7 +848,7 @@ export const ConversionResponseSchema = z.object({
    * `completed` = conversion successful and rate is final; `failed` = conversion could not be
    * completed.
    */
-  status: z.enum(['pending', 'completed', 'failed']),
+  status: caseInsensitiveEnum(['pending', 'completed', 'failed']),
   /** Currency that was converted from */
   from_currency: z.string(),
   /** Currency that was converted to */
@@ -888,7 +906,7 @@ export const OrganizationResponseSchema = z.object({
    * minus fees). 'customer_pays_fee' means customer pays fees (customer pays amount plus fees,
    * you receive full amount).
    */
-  fee_handling: z.enum(['org_pays_fee', 'customer_pays_fee']).optional(),
+  fee_handling: caseInsensitiveEnum(['org_pays_fee', 'customer_pays_fee']).optional(),
   /**
    * Configuration of which payment methods are enabled for your organization. Each method
    * shows if it's enabled and which currencies it supports.
@@ -962,7 +980,7 @@ export const DisputeSummarySchema = z.object({
   /** ISO 4217 currency code for the disputed amount. */
   currency: z.string(),
   /** Current dispute status. */
-  status: z.enum(['needs_response', 'under_review', 'won', 'lost', 'closed']),
+  status: caseInsensitiveEnum(['needs_response', 'under_review', 'won', 'lost', 'closed']),
   /** Whether evidence can still be updated and submitted. */
   is_response_editable: z.boolean(),
   /** Dispute reason code reported by the payment network. */
@@ -1050,7 +1068,7 @@ export const DisputeResponseSchema = z.object({
   /** ISO 4217 currency code for the disputed amount. */
   currency: z.string(),
   /** Current dispute status. */
-  status: z.enum(['needs_response', 'under_review', 'won', 'lost', 'closed']),
+  status: caseInsensitiveEnum(['needs_response', 'under_review', 'won', 'lost', 'closed']),
   /** Whether evidence is still editable for this dispute. */
   is_response_editable: z.boolean(),
   /** Dispute reason code reported by the payment network. */
@@ -1197,13 +1215,13 @@ export type CurrencyOptionInput = z.infer<typeof CurrencyOptionInputSchema>
 
 export const PriceInputSchema = z.object({
   /** The product's primary currency. Must be `USD` or `NGN`. */
-  currency: z.enum(['USD', 'NGN']),
+  currency: caseInsensitiveEnum(['USD', 'NGN']),
   /**
    * How the product is priced. `fixed`: a set amount, given in `amount`. `free`: no charge.
    * `custom`: the customer pays what they want, bounded by `minimum_amount` and
    * `maximum_amount` with an optional `preset_amount` suggestion.
    */
-  price_type: z.enum(['fixed', 'free', 'custom']).optional(),
+  price_type: caseInsensitiveEnum(['fixed', 'free', 'custom']).optional(),
   /**
    * Price as a decimal string, e.g. `"29.00"`. Required when `price_type` is `fixed`. Omit for
    * `free` and `custom`.
@@ -1235,7 +1253,7 @@ export const SubscriptionCadenceSchema = z.object({
    * Unit of time for each billing cycle. `day`: billed daily. `week`: billed weekly. `month`:
    * billed monthly. `year`: billed yearly.
    */
-  interval: z.enum(['day', 'week', 'month', 'year']).optional(),
+  interval: caseInsensitiveEnum(['day', 'week', 'month', 'year']).optional(),
   /**
    * Number of intervals per cycle. For example, `interval` `month` with `frequency` `3` bills
    * every three months.
@@ -1251,7 +1269,7 @@ export type SubscriptionCadence = z.infer<typeof SubscriptionCadenceSchema>
  */
 export const TrialPeriodSchema = z.object({
   /** The unit of time the trial is measured in: `day`, `week`, `month`, or `year`. */
-  interval: z.enum(['day', 'week', 'month', 'year']),
+  interval: caseInsensitiveEnum(['day', 'week', 'month', 'year']),
   /**
    * How many `interval` units the trial lasts. For example, `interval` `day` with `frequency`
    * `14` is a 14-day trial.
@@ -1339,7 +1357,7 @@ export const PriceResponseSchema = z.object({
    * `custom`: the customer pays what they want, bounded by `minimum_amount` and
    * `maximum_amount` with an optional `preset_amount` suggestion.
    */
-  price_type: z.enum(['fixed', 'free', 'custom']).optional(),
+  price_type: caseInsensitiveEnum(['fixed', 'free', 'custom']).optional(),
   /** Price in the primary currency as a decimal string. */
   amount: z.string().optional(),
   /**
@@ -1372,7 +1390,7 @@ export const ProductResponseSchema = z.object({
    * subscriptions. `archived`: Retired. Kept for reference but not available for new
    * purchases.
    */
-  status: z.enum(['active', 'archived']).optional(),
+  status: caseInsensitiveEnum(['active', 'archived']).optional(),
   /** Your own key-value data attached to the product, returned unchanged. */
   metadata: z.record(z.string(), z.unknown()).nullable().optional(),
   /** Media items (images) attached to the product. Empty when none are set. */
@@ -1648,7 +1666,7 @@ export const ResolvedProductItemSchema = z.object({
    * `custom`: the customer pays what they want, bounded by `minimum_amount` and
    * `maximum_amount` with an optional `preset_amount` suggestion.
    */
-  price_type: z.enum(['fixed', 'free', 'custom']),
+  price_type: caseInsensitiveEnum(['fixed', 'free', 'custom']),
   /** Minimum allowed amount when `price_type` is true. */
   minimum_amount: z.string().nullable().optional(),
   /** Maximum allowed amount when `price_type` is true. */
@@ -1693,7 +1711,7 @@ export const PaymentInvoiceInfoSchema = z.object({
    * `cycle`: a regular subscription-period invoice. `proration`: an off-cycle mid-cycle
    * change.
    */
-  kind: z.enum(['cycle', 'proration']).optional(),
+  kind: caseInsensitiveEnum(['cycle', 'proration']).optional(),
 })
 
 export type PaymentInvoiceInfo = z.infer<typeof PaymentInvoiceInfoSchema>
@@ -1709,11 +1727,11 @@ export const PaymentResponseSchema = z.object({
    * cycle of a new subscription. `subscription_cycle`: a subscription renewal.
    * `subscription_update`: an off-cycle charge from a mid-cycle plan change (proration).
    */
-  billing_reason: z.enum(['purchase', 'subscription_create', 'subscription_cycle', 'subscription_update']).optional(),
+  billing_reason: caseInsensitiveEnum(['purchase', 'subscription_create', 'subscription_cycle', 'subscription_update']).optional(),
   /** Checkout identifier, when linked. */
   checkout_id: z.string().nullable().optional(),
   /** payment status. */
-  status: z.enum(['created', 'processing', 'succeeded', 'accepted', 'failed', 'expired', 'cancelled', 'refunded', 'partially_refunded', 'underpaid', 'overpaid']),
+  status: caseInsensitiveEnum(['created', 'processing', 'succeeded', 'accepted', 'failed', 'expired', 'cancelled', 'refunded', 'partially_refunded', 'underpaid', 'overpaid']),
   /** Whether this payment can currently be refunded. */
   is_refundable: z.boolean().nullable().optional(),
   /** Requested amount in `currency`. */
@@ -1790,12 +1808,12 @@ export const CheckoutResponseSchema = z.object({
    * checkout window elapsed before payment. This is a terminal state. `CANCELLED`: Canceled
    * before completion. This is a terminal state.
    */
-  status: z.enum(['OPEN', 'COMPLETED', 'EXPIRED', 'CANCELLED']),
+  status: caseInsensitiveEnum(['OPEN', 'COMPLETED', 'EXPIRED', 'CANCELLED']),
   /**
    * How the checkout was created. `API`: Created directly through the API. `CHECKOUT_SESSION`:
    * Created from a checkout session. `PAYMENT_LINK`: Created from a shareable payment link.
    */
-  source_type: z.enum(['API', 'CHECKOUT_SESSION', 'PAYMENT_LINK']),
+  source_type: caseInsensitiveEnum(['API', 'CHECKOUT_SESSION', 'PAYMENT_LINK']),
   /** Requested amount in `currency`. */
   amount: z.string(),
   /** Base currency code. */
@@ -1837,7 +1855,7 @@ export type CheckoutResponse = z.infer<typeof CheckoutResponseSchema>
  */
 export const CheckoutRecurringSchema = z.object({
   /** The billing interval. */
-  interval: z.enum(['day', 'week', 'month', 'year']),
+  interval: caseInsensitiveEnum(['day', 'week', 'month', 'year']),
   /** Number of intervals per billing cycle. */
   interval_count: z.number().int().optional(),
 })
@@ -1866,14 +1884,14 @@ export const CheckoutSessionApiResponseSchema = z.object({
    * The session window elapsed before payment. This is a terminal state. `CANCELLED`: Canceled
    * before completion. This is a terminal state.
    */
-  status: z.enum(['OPEN', 'COMPLETED', 'EXPIRED', 'CANCELLED']),
+  status: caseInsensitiveEnum(['OPEN', 'COMPLETED', 'EXPIRED', 'CANCELLED']),
   /** Present only for a subscription checkout; `null` for a one-time checkout. */
   recurring: CheckoutRecurringSchema.nullable().optional(),
   /**
    * Payment lifecycle for the checkout. `requires_payment_method`, `requires_confirmation`,
    * `requires_action`, `processing`, `succeeded`, `failed`, or `canceled`.
    */
-  payment_status: z.enum(['requires_payment_method', 'requires_confirmation', 'requires_action', 'processing', 'succeeded', 'failed', 'canceled']).nullable().optional(),
+  payment_status: caseInsensitiveEnum(['requires_payment_method', 'requires_confirmation', 'requires_action', 'processing', 'succeeded', 'failed', 'canceled']).nullable().optional(),
   /** What created the checkout, e.g. `CHECKOUT_SESSION` or `API`. */
   source_type: z.string().nullable().optional(),
   /** Total amount in `currency`. */
@@ -1902,7 +1920,7 @@ export const CheckoutSessionApiResponseSchema = z.object({
    * How products are presented. `CART` sums a fixed set of items; `SELECTION` lets the
    * customer pick one from a group.
    */
-  session_mode: z.enum(['CART', 'SELECTION']).nullable().optional(),
+  session_mode: caseInsensitiveEnum(['CART', 'SELECTION']).nullable().optional(),
   /** Public metadata you attached at session creation. */
   metadata: z.record(z.string(), z.unknown()).nullable().optional(),
   /** ISO 8601 creation timestamp. */
@@ -1946,7 +1964,7 @@ export const SubscriptionItemPriceSchema = z.object({
    * `free`: no charge. `custom`: the customer chose the amount at checkout, within the
    * product's bounds.
    */
-  price_type: z.enum(['fixed', 'free', 'custom']).optional(),
+  price_type: caseInsensitiveEnum(['fixed', 'free', 'custom']).optional(),
   /** The currency of this price, as an ISO 4217 code. */
   currency: z.string().optional(),
   /** Decimal string at the currency's precision */
@@ -1982,7 +2000,7 @@ export const SubscriptionItemSchema = z.object({
    * `free`: no charge. `custom`: the customer chose the amount at checkout, within the
    * product's bounds.
    */
-  price_type: z.enum(['fixed', 'free', 'custom']).optional(),
+  price_type: caseInsensitiveEnum(['fixed', 'free', 'custom']).optional(),
   /** Price for one unit of this item, as a decimal string in the item's currency. */
   unit_amount: z.string().optional(),
   /** The currency this item is billed in, as an ISO 4217 code. */
@@ -2038,7 +2056,7 @@ export const SubscriptionResponseSchema = z.object({
    * automatically each cycle. `past_due`: A cycle payment failed. Bachs is retrying the
    * payment while access continues. `unpaid`: Payment retries have b...
    */
-  status: z.enum(['trialing', 'active', 'past_due', 'unpaid', 'canceled', 'paused']).optional(),
+  status: caseInsensitiveEnum(['trialing', 'active', 'past_due', 'unpaid', 'canceled', 'paused']).optional(),
   /** How renewals are collected. `charge_automatically` bills the saved card each cycle. */
   collection_method: z.string().optional(),
   /**
@@ -2138,9 +2156,9 @@ export const UpdateSubscriptionRequestSchema = z.object({
    * (`""`) to clear all metadata. Stands alone: it cannot be combined with a plan, trial, or
    * payment-method change.
    */
-  metadata: z.union([z.record(z.string(), z.unknown()), z.enum([''])]).optional(),
+  metadata: z.union([z.record(z.string(), z.unknown()), caseInsensitiveEnum([''])]).optional(),
   /** How a plan change is settled. Defaults to invoice_now. See the Proration guide. */
-  proration_behavior: z.enum(['invoice_now', 'next_cycle', 'none']).optional(),
+  proration_behavior: caseInsensitiveEnum(['invoice_now', 'next_cycle', 'none']).optional(),
 })
 
 export type UpdateSubscriptionRequest = z.infer<typeof UpdateSubscriptionRequestSchema>
@@ -2237,7 +2255,7 @@ export const WebhookEndpointSchema = z.object({
   /** Whether the endpoint is active and receiving events. */
   enabled: z.boolean(),
   /** The events this endpoint is subscribed to. */
-  event_types: z.array(z.enum(['collection.succeeded', 'collection.failed', 'collection.underpaid', 'checkout.completed', 'checkout.expired', 'payout.created', 'payout.paid', 'payout.failed', 'refund.created', 'refund.paid', 'refund.failed', 'conversion.completed', 'conversion.failed', 'customer.created', 'customer.updated', 'dispute.created', 'dispute.updated', 'customer.subscription.created', 'customer.subscription.updated', 'customer.subscription.deleted', 'invoice.created', 'invoice.paid', 'invoice.payment_failed'])),
+  event_types: z.array(caseInsensitiveEnum(['collection.succeeded', 'collection.failed', 'collection.underpaid', 'checkout.completed', 'checkout.expired', 'payout.created', 'payout.paid', 'payout.failed', 'refund.created', 'refund.paid', 'refund.failed', 'conversion.completed', 'conversion.failed', 'customer.created', 'customer.updated', 'dispute.created', 'dispute.updated', 'customer.subscription.created', 'customer.subscription.updated', 'customer.subscription.deleted', 'invoice.created', 'invoice.paid', 'invoice.payment_failed'])),
   /** When the endpoint was created, in UTC. */
   created_at: z.string(),
   /** When the endpoint was last updated, in UTC. */
@@ -2253,7 +2271,7 @@ export const CreateWebhookEndpointRequestSchema = z.object({
   /** The HTTPS URL Bachs should deliver events to. */
   url: z.string(),
   /** The events to subscribe to. At least one is required. */
-  event_types: z.array(z.enum(['collection.succeeded', 'collection.failed', 'collection.underpaid', 'checkout.completed', 'checkout.expired', 'payout.created', 'payout.paid', 'payout.failed', 'refund.created', 'refund.paid', 'refund.failed', 'conversion.completed', 'conversion.failed', 'customer.created', 'customer.updated', 'dispute.created', 'dispute.updated', 'customer.subscription.created', 'customer.subscription.updated', 'customer.subscription.deleted', 'invoice.created', 'invoice.paid', 'invoice.payment_failed'])),
+  event_types: z.array(caseInsensitiveEnum(['collection.succeeded', 'collection.failed', 'collection.underpaid', 'checkout.completed', 'checkout.expired', 'payout.created', 'payout.paid', 'payout.failed', 'refund.created', 'refund.paid', 'refund.failed', 'conversion.completed', 'conversion.failed', 'customer.created', 'customer.updated', 'dispute.created', 'dispute.updated', 'customer.subscription.created', 'customer.subscription.updated', 'customer.subscription.deleted', 'invoice.created', 'invoice.paid', 'invoice.payment_failed'])),
 })
 
 export type CreateWebhookEndpointRequest = z.infer<typeof CreateWebhookEndpointRequestSchema>
@@ -2265,7 +2283,7 @@ export const UpdateWebhookEndpointRequestSchema = z.object({
   /** A new HTTPS delivery URL. */
   url: z.string().nullable().optional(),
   /** Replace the subscribed events. At least one if provided. */
-  event_types: z.array(z.enum(['collection.succeeded', 'collection.failed', 'collection.underpaid', 'checkout.completed', 'checkout.expired', 'payout.created', 'payout.paid', 'payout.failed', 'refund.created', 'refund.paid', 'refund.failed', 'conversion.completed', 'conversion.failed', 'customer.created', 'customer.updated', 'dispute.created', 'dispute.updated', 'customer.subscription.created', 'customer.subscription.updated', 'customer.subscription.deleted', 'invoice.created', 'invoice.paid', 'invoice.payment_failed'])).nullable().optional(),
+  event_types: z.array(caseInsensitiveEnum(['collection.succeeded', 'collection.failed', 'collection.underpaid', 'checkout.completed', 'checkout.expired', 'payout.created', 'payout.paid', 'payout.failed', 'refund.created', 'refund.paid', 'refund.failed', 'conversion.completed', 'conversion.failed', 'customer.created', 'customer.updated', 'dispute.created', 'dispute.updated', 'customer.subscription.created', 'customer.subscription.updated', 'customer.subscription.deleted', 'invoice.created', 'invoice.paid', 'invoice.payment_failed'])).nullable().optional(),
 })
 
 export type UpdateWebhookEndpointRequest = z.infer<typeof UpdateWebhookEndpointRequestSchema>
@@ -2284,7 +2302,7 @@ export const CreateWebhookEndpointResponseSchema = z.object({
   /** Whether the endpoint is active and receiving events. */
   enabled: z.boolean(),
   /** The events this endpoint is subscribed to. */
-  event_types: z.array(z.enum(['collection.succeeded', 'collection.failed', 'collection.underpaid', 'checkout.completed', 'checkout.expired', 'payout.created', 'payout.paid', 'payout.failed', 'refund.created', 'refund.paid', 'refund.failed', 'conversion.completed', 'conversion.failed', 'customer.created', 'customer.updated', 'dispute.created', 'dispute.updated', 'customer.subscription.created', 'customer.subscription.updated', 'customer.subscription.deleted', 'invoice.created', 'invoice.paid', 'invoice.payment_failed'])),
+  event_types: z.array(caseInsensitiveEnum(['collection.succeeded', 'collection.failed', 'collection.underpaid', 'checkout.completed', 'checkout.expired', 'payout.created', 'payout.paid', 'payout.failed', 'refund.created', 'refund.paid', 'refund.failed', 'conversion.completed', 'conversion.failed', 'customer.created', 'customer.updated', 'dispute.created', 'dispute.updated', 'customer.subscription.created', 'customer.subscription.updated', 'customer.subscription.deleted', 'invoice.created', 'invoice.paid', 'invoice.payment_failed'])),
   /** When the endpoint was created, in UTC. */
   created_at: z.string(),
   /** When the endpoint was last updated, in UTC. */
@@ -2309,7 +2327,7 @@ export const WebhookEndpointSecretResponseSchema = z.object({
   /** Whether the endpoint is active and receiving events. */
   enabled: z.boolean().optional(),
   /** The events this endpoint is subscribed to. */
-  event_types: z.array(z.enum(['collection.succeeded', 'collection.failed', 'collection.underpaid', 'checkout.completed', 'checkout.expired', 'payout.created', 'payout.paid', 'payout.failed', 'refund.created', 'refund.paid', 'refund.failed', 'conversion.completed', 'conversion.failed', 'customer.created', 'customer.updated', 'dispute.created', 'dispute.updated', 'customer.subscription.created', 'customer.subscription.updated', 'customer.subscription.deleted', 'invoice.created', 'invoice.paid', 'invoice.payment_failed'])).optional(),
+  event_types: z.array(caseInsensitiveEnum(['collection.succeeded', 'collection.failed', 'collection.underpaid', 'checkout.completed', 'checkout.expired', 'payout.created', 'payout.paid', 'payout.failed', 'refund.created', 'refund.paid', 'refund.failed', 'conversion.completed', 'conversion.failed', 'customer.created', 'customer.updated', 'dispute.created', 'dispute.updated', 'customer.subscription.created', 'customer.subscription.updated', 'customer.subscription.deleted', 'invoice.created', 'invoice.paid', 'invoice.payment_failed'])).optional(),
   /** When the endpoint was created, in UTC. */
   created_at: z.string().optional(),
   /** When the endpoint was last updated, in UTC. */

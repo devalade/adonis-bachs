@@ -217,6 +217,11 @@ against every documented example.
 To track an API update, replace the vendored spec, re-run the generator, and review the
 diff.
 
+## Maintenance
+
+Actively maintained by [@devalade](https://github.com/devalade). Issues and pull
+requests are welcome.
+
 ## License
 
 MIT
